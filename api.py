@@ -2,7 +2,9 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 import hashlib
 import sqlite3
 import secrets
+import os
 from datetime import datetime, timezone
+
 
 app = FastAPI(
     title="EvidenceLedger API",
@@ -10,15 +12,25 @@ app = FastAPI(
     version="1.0.0"
 )
 
-DATABASE = "evidence.db"
 
-# Change this when you deploy
-BASE_URL = "http://127.0.0.1:8000"
+# =========================================================
+# CONFIGURATION
+# =========================================================
+
+DATABASE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "evidence.db"
+)
+
+BASE_URL = os.getenv(
+    "BASE_URL",
+    "http://127.0.0.1:8000"
+)
 
 
-# -----------------------------
+# =========================================================
 # DATABASE
-# -----------------------------
+# =========================================================
 
 def init_database():
     conn = sqlite3.connect(DATABASE)
@@ -39,17 +51,17 @@ def init_database():
 init_database()
 
 
-# -----------------------------
+# =========================================================
 # SHA-256
-# -----------------------------
+# =========================================================
 
 def calculate_sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-# -----------------------------
+# =========================================================
 # HOME
-# -----------------------------
+# =========================================================
 
 @app.get("/")
 def home():
@@ -65,9 +77,9 @@ def home():
     }
 
 
-# -----------------------------
+# =========================================================
 # HASH + REGISTER EVIDENCE
-# -----------------------------
+# =========================================================
 
 @app.post("/hash")
 async def hash_file(file: UploadFile = File(...)):
@@ -97,7 +109,7 @@ async def hash_file(file: UploadFile = File(...)):
         """,
         (
             evidence_id,
-            file.filename,
+            file.filename or "unknown",
             sha256_hash,
             created_at
         )
@@ -120,9 +132,9 @@ async def hash_file(file: UploadFile = File(...)):
     }
 
 
-# -----------------------------
+# =========================================================
 # VERIFY EVIDENCE
-# -----------------------------
+# =========================================================
 
 @app.post("/verify/{evidence_id}")
 async def verify_file(
@@ -155,6 +167,12 @@ async def verify_file(
 
     file_bytes = await file.read()
 
+    if not file_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail="Empty file"
+        )
+
     actual_hash = calculate_sha256(file_bytes)
 
     verified = (
@@ -181,9 +199,9 @@ async def verify_file(
     }
 
 
-# -----------------------------
+# =========================================================
 # GET EVIDENCE INFORMATION
-# -----------------------------
+# =========================================================
 
 @app.get("/evidence/{evidence_id}")
 def get_evidence(evidence_id: str):
@@ -214,5 +232,6 @@ def get_evidence(evidence_id: str):
         "filename": record[1],
         "algorithm": "SHA-256",
         "hash": record[2],
-        "registered_at": record[3]
+        "registered_at": record[3],
+        "verification_url": f"{BASE_URL}/verify/{record[0]}"
     }
